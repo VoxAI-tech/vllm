@@ -480,6 +480,11 @@ def render_for_completion(messages: list[Message]) -> list[int]:
     token_ids = get_encoding().render_conversation_for_completion(
         conversation, Role.ASSISTANT
     )
+    # HACK: Skip-thinking - inject tokens to skip analysis channel
+    # When enabled, the model starts directly in the final channel
+    if envs.VLLM_SKIP_THINKING:
+        skip_tokens = [200005, 17196, 200008]  # <|channel|>final<|message|>
+        token_ids = token_ids + skip_tokens
     return token_ids
 
 
@@ -764,7 +769,11 @@ def parse_remaining_state(parser: StreamableParser) -> list[ResponseOutputItem]:
 
 
 def get_stop_tokens_for_assistant_actions() -> list[int]:
-    return get_encoding().stop_tokens_for_assistant_actions()
+    stop_tokens = list(get_encoding().stop_tokens_for_assistant_actions())
+    # HACK: Skip-thinking - add extra stop tokens to prevent backfill
+    if envs.VLLM_SKIP_THINKING:
+        stop_tokens.extend([200005, 200007])  # <|channel|>, <|end|>
+    return stop_tokens
 
 
 def get_streamable_parser_for_assistant() -> StreamableParser:
@@ -773,8 +782,19 @@ def get_streamable_parser_for_assistant() -> StreamableParser:
 
 def parse_output_into_messages(token_ids: Iterable[int]) -> StreamableParser:
     parser = get_streamable_parser_for_assistant()
+    # HACK: Skip-thinking - pre-initialize parser with channel tokens
+    if envs.VLLM_SKIP_THINKING:
+        skip_tokens = [200005, 17196, 200008]  # <|channel|>final<|message|>
+        for t in skip_tokens:
+            parser.process(t)
     for token_id in token_ids:
-        parser.process(token_id)
+        try:
+            parser.process(token_id)
+        except Exception:
+            # HACK: Skip-thinking - stop on parser errors (e.g., backfill)
+            if envs.VLLM_SKIP_THINKING:
+                break
+            raise
     return parser
 
 
