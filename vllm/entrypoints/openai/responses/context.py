@@ -540,21 +540,10 @@ class HarmonyContext(ConversationContext):
     def append_output(self, output: RequestOutput) -> None:
         output_token_ids = output.outputs[0].token_ids
         self.parser = get_streamable_parser_for_assistant()
-        # HACK: Skip-thinking - pre-initialize parser with channel tokens
-        if envs.VLLM_SKIP_THINKING:
-            skip_tokens = [200005, 17196, 200008]  # <|channel|>final<|message|>
-            for t in skip_tokens:
-                self.parser.process(t)
         for token_id in output_token_ids:
-            try:
-                self.parser.process(token_id)
-                # Check if the current token is part of reasoning content
-                self._update_num_reasoning_tokens()
-            except Exception:
-                # HACK: Skip-thinking - stop on parser errors (e.g., backfill)
-                if envs.VLLM_SKIP_THINKING:
-                    break
-                raise
+            self.parser.process(token_id)
+            # Check if the current token is part of reasoning content
+            self._update_num_reasoning_tokens()
         self._update_prefill_token_usage(output)
         self._update_decode_token_usage(output)
         # Append current turn to all turn list for next turn's calculations
@@ -837,11 +826,6 @@ class StreamingHarmonyContext(HarmonyContext):
         self.last_output = None
 
         self.parser = get_streamable_parser_for_assistant()
-        # HACK: Skip-thinking - pre-initialize parser with channel tokens
-        if envs.VLLM_SKIP_THINKING:
-            skip_tokens = [200005, 17196, 200008]  # <|channel|>final<|message|>
-            for t in skip_tokens:
-                self.parser.process(t)
         self.encoding = get_encoding()
         self.last_tok = None
         self.first_tok_of_message = True
@@ -864,14 +848,8 @@ class StreamingHarmonyContext(HarmonyContext):
         self.first_tok_of_message = output.finished
         last_delta_text = ""
         for tok in output.outputs[0].token_ids:
-            try:
-                self.parser.process(tok)
-                last_delta_text += self.parser.last_content_delta or ""
-            except Exception:
-                # HACK: Skip-thinking - stop on parser errors (e.g., backfill)
-                if envs.VLLM_SKIP_THINKING:
-                    break
-                raise
+            self.parser.process(tok)
+            last_delta_text += self.parser.last_content_delta or ""
         if last_delta_text:
             self.last_content_delta = last_delta_text
         self._update_decode_token_usage(output)

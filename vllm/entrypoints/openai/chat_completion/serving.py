@@ -15,7 +15,6 @@ from fastapi import Request
 from openai_harmony import Message as OpenAIMessage
 from partial_json_parser.core.options import Allow
 
-from vllm import envs
 from vllm.engine.protocol import EngineClient
 from vllm.entrypoints.chat_utils import (
     ChatTemplateContentFormatOption,
@@ -647,15 +646,9 @@ class OpenAIServingChat(OpenAIServing):
         num_prompt_tokens = 0
         num_cached_tokens = None
         if self.use_harmony:
-            harmony_parsers = []
-            for _ in range(num_choices):
-                parser = get_streamable_parser_for_assistant()
-                # HACK: Skip-thinking - pre-initialize parser with channel tokens
-                if envs.VLLM_SKIP_THINKING:
-                    skip_tokens = [200005, 17196, 200008]  # <|channel|>final<|message|>
-                    for t in skip_tokens:
-                        parser.process(t)
-                harmony_parsers.append(parser)
+            harmony_parsers = [
+                get_streamable_parser_for_assistant() for _ in range(num_choices)
+            ]
             harmony_tools_streamed = [False] * num_choices
         tools_streamed = [False] * num_choices
 
@@ -855,21 +848,15 @@ class OpenAIServingChat(OpenAIServing):
                         # Track accumulated content per token with their state
                         token_states: list[TokenState] = []
                         for token_id in output.token_ids:
-                            try:
-                                harmony_parser.process(token_id)
-                                token_delta = harmony_parser.last_content_delta or ""
-                                token_states.append(
-                                    TokenState(
-                                        harmony_parser.current_channel,
-                                        harmony_parser.current_recipient,
-                                        token_delta,
-                                    )
+                            harmony_parser.process(token_id)
+                            token_delta = harmony_parser.last_content_delta or ""
+                            token_states.append(
+                                TokenState(
+                                    harmony_parser.current_channel,
+                                    harmony_parser.current_recipient,
+                                    token_delta,
                                 )
-                            except Exception:
-                                # HACK: Skip-thinking - stop on parser errors
-                                if envs.VLLM_SKIP_THINKING:
-                                    break
-                                raise
+                            )
                         delta_text = "".join(delta for _, _, delta in token_states)
                         cur_channel = harmony_parser.current_channel
 
