@@ -1,3 +1,4 @@
+import os
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
@@ -43,8 +44,8 @@ from openai_harmony import Message as OpenAIHarmonyMessage
 from openai_harmony import Role as OpenAIHarmonyRole
 
 from vllm import envs
-from vllm.entrypoints.openai.chat_completion.protocol import ChatCompletionToolsParam
-from vllm.entrypoints.openai.responses.protocol import (
+from vllm.entrypoints.openai.protocol import (
+    ChatCompletionToolsParam,
     ResponseInputOutputItem,
     ResponsesRequest,
 )
@@ -103,7 +104,10 @@ def get_system_message(
             f"{current_identity}\n{instructions}" if current_identity else instructions
         )
         sys_msg_content = sys_msg_content.with_model_identity(new_identity)
-    if reasoning_effort is not None:
+    # Set reasoning effort - use LOW when skip-thinking is enabled
+    if os.environ.get("VLLM_SKIP_THINKING", "0") == "1":
+        sys_msg_content = sys_msg_content.with_reasoning_effort(ReasoningEffort.LOW)
+    elif reasoning_effort is not None:
         sys_msg_content = sys_msg_content.with_reasoning_effort(
             REASONING_EFFORT[reasoning_effort]
         )
@@ -480,10 +484,9 @@ def render_for_completion(messages: list[Message]) -> list[int]:
     token_ids = get_encoding().render_conversation_for_completion(
         conversation, Role.ASSISTANT
     )
-    # HACK: Skip-thinking - inject empty analysis channel
-    # Model sees analysis as "done" (empty) and can freely choose commentary or final
-    if envs.VLLM_SKIP_THINKING:
-        skip_tokens = [200005, 35644, 200008, 200007]  # <|channel|>analysis<|message|><|end|>
+    # Skip thinking: inject empty analysis channel
+    if os.environ.get("VLLM_SKIP_THINKING", "0") == "1":
+        skip_tokens = [200005, 35644, 200008, 200007, 200006, 173781]
         token_ids = token_ids + skip_tokens
     return token_ids
 
@@ -769,11 +772,18 @@ def parse_remaining_state(parser: StreamableParser) -> list[ResponseOutputItem]:
 
 
 def get_stop_tokens_for_assistant_actions() -> list[int]:
-    return list(get_encoding().stop_tokens_for_assistant_actions())
+    return get_encoding().stop_tokens_for_assistant_actions()
 
 
 def get_streamable_parser_for_assistant() -> StreamableParser:
-    return StreamableParser(get_encoding(), role=Role.ASSISTANT)
+    parser = StreamableParser(get_encoding(), role=Role.ASSISTANT)
+    # Pre-feed skip tokens if skip-thinking is enabled
+    # This tells the parser that analysis channel is already complete
+    if os.environ.get("VLLM_SKIP_THINKING", "0") == "1":
+        skip_tokens = [200005, 35644, 200008, 200007, 200006, 173781]
+        for token_id in skip_tokens:
+            parser.process(token_id)
+    return parser
 
 
 def parse_output_into_messages(token_ids: Iterable[int]) -> StreamableParser:
