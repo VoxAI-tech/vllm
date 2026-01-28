@@ -1,4 +1,33 @@
 <!-- markdownlint-disable MD001 MD041 -->
+
+> ## VoxAI Fork
+>
+> This is a **VoxAI fork** of [vllm-project/vllm](https://github.com/vllm-project/vllm) with modifications to enable streaming for GPT-OSS models.
+>
+> ### Why This Fork?
+>
+> Upstream vLLM has two behaviors that break streaming for our drive-thru use case:
+> 1. **JSON constraint buffering** - When using `response_format.json_schema`, tokens are buffered until complete valid JSON, breaking streaming
+> 2. **Analysis channel overhead** - GPT-OSS outputs `<|channel|>analysis` before responses, adding latency
+>
+> ### What We Changed
+>
+> | File | Change |
+> |------|--------|
+> | `vllm/envs.py` | Added `VLLM_SKIP_THINKING` and `VLLM_SKIP_JSON_CONSTRAINT` env vars |
+> | `vllm/reasoning/gptoss_reasoning_parser.py` | Added "final" channel with `any_text` to structural tag |
+> | `vllm/entrypoints/openai/responses/serving.py` | Bypass JSON constraint when env var enabled |
+>
+> ### Usage
+>
+> ```bash
+> VLLM_SKIP_THINKING=1 VLLM_SKIP_JSON_CONSTRAINT=1 vllm serve /workspace/gpt-oss-120b --port 8888
+> ```
+>
+> Client-side JSON validation via Pydantic's `experimental_allow_partial`. See `docs/gpt-oss-streaming-json.md` for details.
+
+---
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/vllm/main/docs/assets/logos/vllm-logo-text-dark.png">

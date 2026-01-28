@@ -25,9 +25,14 @@ no_func_reaonsing_tag = {
                 "begin": "<|channel|>analysis<|message|>",
                 "content": {"type": "any_text"},
                 "end": "<|end|>",
-            }
+            },
+            {
+                "begin": "<|channel|>final<|message|>",
+                "content": {"type": "any_text"},
+                "end": "<|end|>",
+            },
         ],
-        "triggers": ["<|channel|>analysis"],
+        "triggers": ["<|channel|>analysis", "<|channel|>final"],
         "stop_after_first": False,
     },
 }

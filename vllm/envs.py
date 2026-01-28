@@ -228,6 +228,7 @@ if TYPE_CHECKING:
     VLLM_USE_EXPERIMENTAL_PARSER_CONTEXT: bool = False
     VLLM_GPT_OSS_HARMONY_SYSTEM_INSTRUCTIONS: bool = False
     VLLM_SKIP_THINKING: bool = False
+    VLLM_SKIP_JSON_CONSTRAINT: bool = False
     VLLM_TOOL_JSON_ERROR_AUTOMATIC_RETRY: bool = False
     VLLM_CUSTOM_SCOPES_FOR_PROFILING: bool = False
     VLLM_NVTX_SCOPES_FOR_PROFILING: bool = False
@@ -1518,6 +1519,12 @@ environment_variables: dict[str, Callable[[], Any]] = {
     # When enabled, the model skips the analysis channel and responds directly
     "VLLM_SKIP_THINKING": lambda: bool(
         int(os.getenv("VLLM_SKIP_THINKING", "0"))
+    ),
+    # Bypass JSON constraint for GPT-OSS models to enable streaming
+    # When enabled, JSON schema validation is skipped server-side,
+    # allowing tokens to stream. Client should validate with Pydantic.
+    "VLLM_SKIP_JSON_CONSTRAINT": lambda: bool(
+        int(os.getenv("VLLM_SKIP_JSON_CONSTRAINT", "0"))
     ),
     # Enable automatic retry when tool call JSON parsing fails
     # If enabled, returns an error message to the model to retry

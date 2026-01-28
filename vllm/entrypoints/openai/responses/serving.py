@@ -462,6 +462,21 @@ class OpenAIServingResponses(OpenAIServing):
 
                 if self.reasoning_parser is not None:
                     reasoning_parser = self.reasoning_parser(tokenizer)
+
+                    # Bypass JSON constraint for streaming when enabled
+                    # This allows tokens to stream freely; client validates JSON
+                    if (
+                        envs.VLLM_SKIP_JSON_CONSTRAINT
+                        and isinstance(
+                            struct_out := sampling_params.structured_outputs,
+                            StructuredOutputsParams,
+                        )
+                        and struct_out.json is not None
+                    ):
+                        sampling_params.structured_outputs = replace(
+                            struct_out, json=None
+                        )
+
                     if (
                         isinstance(
                             struct_out := sampling_params.structured_outputs,
