@@ -82,13 +82,13 @@ def extract_harmony_streaming_delta(
         if (
             (msg.channel == "commentary" or msg.channel == "analysis")
             and msg.recipient
-            and msg.recipient.startswith("functions.")
+            and (msg.recipient.startswith("functions.") or msg.recipient == "<|constrain|>json" or msg.recipient == "<|channel|>commentary")
         ):
             base_index += 1
 
     # If there's an ongoing tool call from previous chunk,
     # the next new tool call starts at base_index + 1
-    if prev_recipient and prev_recipient.startswith("functions."):
+    if prev_recipient and (prev_recipient.startswith("functions.") or prev_recipient == "<|constrain|>json" or prev_recipient == "<|channel|>commentary"):
         next_tool_index = base_index + 1
         # Ongoing call is at base_index
         ongoing_tool_index = base_index
@@ -104,12 +104,15 @@ def extract_harmony_streaming_delta(
         elif (
             (group.channel == "commentary" or group.channel == "analysis")
             and group.recipient
-            and group.recipient.startswith("functions.")
+            and (group.recipient.startswith("functions.") or group.recipient == "<|constrain|>json" or group.recipient == "<|channel|>commentary")
         ):
             opened_new_call = False
             if prev_recipient != group.recipient:
                 # New tool call - emit the opening message
-                tool_name = group.recipient.split("functions.", 1)[1]
+                if group.recipient.startswith("functions."):
+                    tool_name = group.recipient.split("functions.", 1)[1].replace("<|channel|>commentary", "").replace("<|constrain|>json", "")
+                else:
+                    tool_name = "final_result"  # Default for <|constrain|>json or <|channel|>commentary
                 tool_messages.append(
                     DeltaToolCall(
                         id=make_tool_call_id(),

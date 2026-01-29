@@ -538,7 +538,10 @@ def _parse_browser_tool_call(message: Message, recipient: str) -> ResponseOutput
 
 def _parse_function_call(message: Message, recipient: str) -> list[ResponseOutputItem]:
     """Parse function calls into function tool call items."""
-    function_name = recipient.split(".")[-1]
+    if recipient.startswith("functions."):
+        function_name = recipient.split(".")[-1].replace("<|channel|>commentary", "").replace("<|constrain|>json", "")
+    else:
+        function_name = "final_result"  # Default for <|constrain|>json or <|channel|>commentary
     output_items = []
     for content in message.content:
         random_id = random_uuid()
@@ -647,7 +650,8 @@ def parse_output_message(message: Message) -> list[ResponseOutputItem]:
             output_items.append(_parse_browser_tool_call(message, recipient))
 
         # Function calls (should only happen on commentary channel)
-        elif message.channel == "commentary" and recipient.startswith("functions."):
+        # Also treat <|constrain|>json and <|channel|>commentary as function calls
+        elif message.channel == "commentary" and (recipient.startswith("functions.") or recipient == "<|constrain|>json" or recipient == "<|channel|>commentary"):
             output_items.extend(_parse_function_call(message, recipient))
 
         # Built-in tools are treated as reasoning
@@ -688,14 +692,18 @@ def parse_remaining_state(parser: StreamableParser) -> list[ResponseOutputItem]:
         return []
 
     if current_recipient and parser.current_channel in ("commentary", "analysis"):
-        if current_recipient.startswith("functions."):
+        if current_recipient.startswith("functions.") or current_recipient == "<|constrain|>json" or current_recipient == "<|channel|>commentary":
             rid = random_uuid()
+            if current_recipient.startswith("functions."):
+                fc_name = current_recipient.split(".")[-1].replace("<|channel|>commentary", "").replace("<|constrain|>json", "")
+            else:
+                fc_name = "final_result"  # Default for <|constrain|>json or <|channel|>commentary
             return [
                 ResponseFunctionToolCall(
                     arguments=parser.current_content,
                     call_id=f"call_{rid}",
                     type="function_call",
-                    name=current_recipient.split(".")[-1],
+                    name=fc_name,
                     id=f"fc_{rid}",
                     status="in_progress",
                 )

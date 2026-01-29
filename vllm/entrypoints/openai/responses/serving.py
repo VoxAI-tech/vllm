@@ -815,8 +815,9 @@ class OpenAIServingResponses(OpenAIServing):
             return False
 
         # Function calls have "functions." prefix
+        # Also treat <|constrain|>json and <|channel|>commentary as function calls
         # Everything else is an MCP tool
-        return not recipient.startswith("functions.")
+        return not (recipient.startswith("functions.") or recipient == "<|constrain|>json" or recipient == "<|channel|>commentary")
 
     _TOOL_NAME_TO_MCP_SERVER_LABEL: Final[dict[str, str]] = {
         "python": "code_interpreter",
@@ -1627,7 +1628,10 @@ class OpenAIServingResponses(OpenAIServing):
         state: HarmonyStreamingState,
     ) -> list[StreamingResponsesResponse]:
         """Emit events when a function call completes."""
-        function_name = previous_item.recipient[len("functions.") :]
+        if previous_item.recipient.startswith("functions."):
+            function_name = previous_item.recipient[len("functions."):].replace("<|channel|>commentary", "").replace("<|constrain|>json", "")
+        else:
+            function_name = "final_result"  # Default for <|constrain|>json or <|channel|>commentary
         events = []
         events.append(
             ResponseFunctionCallArgumentsDoneEvent(
@@ -1809,7 +1813,7 @@ class OpenAIServingResponses(OpenAIServing):
         """Emit done events for the previous item when expecting a new start."""
         if previous_item.recipient is not None:
             # Deal with tool call
-            if previous_item.recipient.startswith("functions."):
+            if previous_item.recipient.startswith("functions.") or previous_item.recipient == "<|constrain|>json" or previous_item.recipient == "<|channel|>commentary":
                 return self._emit_function_call_done_events(previous_item, state)
             elif (
                 self._is_mcp_tool_by_namespace(previous_item.recipient)
@@ -2091,7 +2095,7 @@ class OpenAIServingResponses(OpenAIServing):
         ) and ctx.parser.current_recipient is not None:
             recipient = ctx.parser.current_recipient
             # Check for function calls first - they have their own event handling
-            if recipient.startswith("functions."):
+            if recipient.startswith("functions.") or recipient == "<|constrain|>json" or recipient == "<|channel|>commentary":
                 return self._emit_function_call_delta_events(ctx, state)
             is_mcp_tool = self._is_mcp_tool_by_namespace(recipient)
             if is_mcp_tool:
@@ -2394,14 +2398,17 @@ class OpenAIServingResponses(OpenAIServing):
         if not (
             ctx.parser.current_channel == "commentary"
             and ctx.parser.current_recipient
-            and ctx.parser.current_recipient.startswith("functions.")
+            and (ctx.parser.current_recipient.startswith("functions.") or ctx.parser.current_recipient == "<|constrain|>json" or ctx.parser.current_recipient == "<|channel|>commentary")
         ):
             return []
 
         events = []
         if state.is_first_function_call_delta is False:
             state.is_first_function_call_delta = True
-            fc_name = ctx.parser.current_recipient[len("functions.") :]
+            if ctx.parser.current_recipient.startswith("functions."):
+                fc_name = ctx.parser.current_recipient[len("functions."):].replace("<|channel|>commentary", "").replace("<|constrain|>json", "")
+            else:
+                fc_name = "final_result"  # Default for <|constrain|>json or <|channel|>commentary
             state.current_item_id = f"fc_{random_uuid()}"
             tool_call_item = ResponseFunctionToolCall(
                 name=fc_name,
