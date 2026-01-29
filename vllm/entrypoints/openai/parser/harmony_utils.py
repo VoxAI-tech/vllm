@@ -651,7 +651,7 @@ def parse_output_message(message: Message) -> list[ResponseOutputItem]:
 
         # Function calls (should only happen on commentary channel)
         # Also treat <|constrain|>json and <|channel|>commentary as function calls
-        elif message.channel == "commentary" and (recipient.startswith("functions.") or recipient == "<|constrain|>json" or recipient == "<|channel|>commentary"):
+        elif (message.channel == "commentary" and recipient.startswith("functions.")) or recipient == "<|constrain|>json" or recipient == "<|channel|>commentary":
             output_items.extend(_parse_function_call(message, recipient))
 
         # Built-in tools are treated as reasoning
