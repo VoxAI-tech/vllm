@@ -2,29 +2,59 @@
 
 > ## VoxAI Fork
 >
-> This is a **VoxAI fork** of [vllm-project/vllm](https://github.com/vllm-project/vllm) with modifications to enable streaming for GPT-OSS models.
+> This is a **VoxAI fork** of [vllm-project/vllm](https://github.com/vllm-project/vllm) with patches for GPT-OSS models in our drive-thru assistant.
 >
-> ### Why This Fork?
+> ### The Problem
 >
-> Upstream vLLM has two behaviors that break streaming for our drive-thru use case:
-> 1. **JSON constraint buffering** - When using `response_format.json_schema`, tokens are buffered until complete valid JSON, breaking streaming
-> 2. **Analysis channel overhead** - GPT-OSS outputs `<|channel|>analysis` before responses, adding latency
+> GPT-OSS uses the **Harmony Protocol** - a structured output format with channels:
+> ```
+> <|channel|>analysis<|message|>thinking here...<|end|>
+> <|channel|>commentary to=functions.search_menu<|message|>{"query":"whopper"}<|end|>
+> <|channel|>final to=<|constrain|>Response<|message|>{"r":"One Whopper!"}<|end|>
+> ```
+>
+> The `analysis` channel is internal reasoning (like chain-of-thought). For real-time TTS streaming, we need to skip this to reduce latency.
 >
 > ### What We Changed
 >
-> | File | Change |
-> |------|--------|
-> | `vllm/envs.py` | Added `VLLM_SKIP_THINKING` and `VLLM_SKIP_JSON_CONSTRAINT` env vars |
-> | `vllm/reasoning/gptoss_reasoning_parser.py` | Added "final" channel with `any_text` to structural tag |
-> | `vllm/entrypoints/openai/responses/serving.py` | Bypass JSON constraint when env var enabled |
+> **File:** `vllm/entrypoints/openai/parser/harmony_utils.py`
+>
+> The `VLLM_SKIP_THINKING=1` environment variable does three things:
+>
+> 1. **Sets reasoning effort to LOW** (line ~108)
+>    ```python
+>    sys_msg_content = sys_msg_content.with_reasoning_effort(ReasoningEffort.LOW)
+>    ```
+>
+> 2. **Injects skip tokens into the prompt** (line ~488)
+>    ```python
+>    skip_tokens = [200005, 35644, 200008, 200007, 200006, 173781]
+>    token_ids = token_ids + skip_tokens
+>    ```
+>    These tokens represent: `<|channel|>analysis<|message|><|end|><|start|>assistant`
+>
+>    This tells the model "analysis is already done, go straight to response".
+>
+> 3. **Pre-feeds skip tokens to the parser** (line ~790)
+>    ```python
+>    for token_id in skip_tokens:
+>        parser.process(token_id)
+>    ```
+>    This synchronizes the parser state with what we injected into the prompt.
+>
+> **Additional fix:** Allow `<|constrain|>json` recipients on any channel, not just `commentary` (line ~654).
 >
 > ### Usage
 >
 > ```bash
-> VLLM_SKIP_THINKING=1 VLLM_SKIP_JSON_CONSTRAINT=1 vllm serve /workspace/gpt-oss-120b --port 8888
+> VLLM_SKIP_THINKING=1 vllm serve /workspace/gpt-oss-20b \
+>     --port 8888 \
+>     --reasoning-parser openai_gptoss \
+>     --max-model-len 131072 \
+>     --gpu-memory-utilization 0.95
 > ```
 >
-> Client-side JSON validation via Pydantic's `experimental_allow_partial`. See `docs/gpt-oss-streaming-json.md` for details.
+> JSON validation is done client-side via Pydantic's `experimental_allow_partial="trailing-strings"`.
 
 ---
 
