@@ -649,9 +649,9 @@ def parse_output_message(message: Message) -> list[ResponseOutputItem]:
         if recipient.startswith("browser."):
             output_items.append(_parse_browser_tool_call(message, recipient))
 
-        # Function calls (should only happen on commentary channel)
+        # Function calls - handle regardless of channel (GPT-OSS can output on "final" channel)
         # Also treat <|constrain|>json and <|channel|>commentary as function calls
-        elif (message.channel == "commentary" and recipient.startswith("functions.")) or recipient == "<|constrain|>json" or recipient == "<|channel|>commentary":
+        elif recipient.startswith("functions.") or recipient == "<|constrain|>json" or recipient == "<|channel|>commentary":
             output_items.extend(_parse_function_call(message, recipient))
 
         # Built-in tools are treated as reasoning
@@ -691,42 +691,46 @@ def parse_remaining_state(parser: StreamableParser) -> list[ResponseOutputItem]:
     if current_recipient is not None and current_recipient.startswith("browser."):
         return []
 
-    if current_recipient and parser.current_channel in ("commentary", "analysis"):
-        if current_recipient.startswith("functions.") or current_recipient == "<|constrain|>json" or current_recipient == "<|channel|>commentary":
-            rid = random_uuid()
-            if current_recipient.startswith("functions."):
-                fc_name = current_recipient.split(".")[-1].replace("<|channel|>commentary", "").replace("<|constrain|>json", "")
-            else:
-                fc_name = "final_result"  # Default for <|constrain|>json or <|channel|>commentary
-            return [
-                ResponseFunctionToolCall(
-                    arguments=parser.current_content,
-                    call_id=f"call_{rid}",
-                    type="function_call",
-                    name=fc_name,
-                    id=f"fc_{rid}",
-                    status="in_progress",
-                )
-            ]
-        # Built-in tools (python, browser, container) should be treated as reasoning
-        elif not (
-            current_recipient.startswith("python")
-            or current_recipient.startswith("browser")
-            or current_recipient.startswith("container")
-        ):
-            # All other recipients are MCP calls
-            rid = random_uuid()
-            server_label, tool_name = _parse_mcp_recipient(current_recipient)
-            return [
-                McpCall(
-                    arguments=parser.current_content,
-                    type="mcp_call",
-                    name=tool_name,
-                    server_label=server_label,
-                    id=f"mcp_{rid}",
-                    status="in_progress",
-                )
-            ]
+    # Check for constraint recipients - handle them as function calls regardless of channel
+    # (GPT-OSS can output constraints on the "final" channel)
+    is_constraint_recipient = (
+        current_recipient
+        and (current_recipient.startswith("functions.") or current_recipient == "<|constrain|>json" or current_recipient == "<|channel|>commentary")
+    )
+    if is_constraint_recipient:
+        rid = random_uuid()
+        if current_recipient.startswith("functions."):
+            fc_name = current_recipient.split(".")[-1].replace("<|channel|>commentary", "").replace("<|constrain|>json", "")
+        else:
+            fc_name = "final_result"  # Default for <|constrain|>json or <|channel|>commentary
+        return [
+            ResponseFunctionToolCall(
+                arguments=parser.current_content,
+                call_id=f"call_{rid}",
+                type="function_call",
+                name=fc_name,
+                id=f"fc_{rid}",
+                status="in_progress",
+            )
+        ]
+    elif current_recipient is not None and not (
+        current_recipient.startswith("python")
+        or current_recipient.startswith("browser")
+        or current_recipient.startswith("container")
+    ):
+        # All other recipients are MCP calls (not built-in tools)
+        rid = random_uuid()
+        server_label, tool_name = _parse_mcp_recipient(current_recipient)
+        return [
+            McpCall(
+                arguments=parser.current_content,
+                type="mcp_call",
+                name=tool_name,
+                server_label=server_label,
+                id=f"mcp_{rid}",
+                status="in_progress",
+            )
+        ]
 
     if parser.current_channel == "commentary":
         return [
